@@ -295,6 +295,14 @@ pub mod datadog_agent {
         fetch_http_headers()
     }
 
+    // TODO: is isize the correct type?
+    #[pyfunction]
+    fn log_message(message: String, level: isize) {
+        trace!("log_message({}, {})", message, level);
+        println!("log_message({}, {})", message, level);
+        // TODO
+    }
+
     #[pyfunction]
     fn set_check_metadata(check_id: String, name: String, value: String) {
         debug!("Called set_check_metadata({}, {}, {})", check_id, name, value);
