@@ -15,7 +15,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, trace};
 
 use crate::sources::checks::check_metric::{CheckMetric, MetricType};
-use crate::sources::checks::execution_context::ExecutionContext;
+use crate::sources::checks::execution_context::{ExecutionContext, HttpHeaders};
 
 // Global state to store the sender
 static METRIC_SENDER: OnceLock<Sender<Event>> = OnceLock::new();
@@ -88,8 +88,8 @@ fn fetch_tracemalloc_enabled() -> bool {
     }
 }
 
-fn fetch_http_headers() -> &'static HashMap<String, String> {
-    static EMPTY: LazyLock<HashMap<String, String>> = LazyLock::new(|| HashMap::new()); // FIXME: yuk!
+fn fetch_http_headers() -> &'static HttpHeaders {
+    static EMPTY: LazyLock<HttpHeaders> = LazyLock::new(|| HttpHeaders::default()); // FIXME: yuk!
 
     match GLOBAL_EXECUTION_CONTEXT.get() {
         Some(ExecutionContext { http_headers, .. }) => http_headers,
@@ -290,9 +290,14 @@ pub mod datadog_agent {
     }
 
     #[pyfunction]
-    fn headers() -> &'static HashMap<String, String> {
+    fn headers() -> HashMap<String, String> {
         trace!("Called headers()");
-        fetch_http_headers()
+
+        // TODO: would be nice to build the PyDict here but we need the 'py'
+        fetch_http_headers().iter().fold(HashMap::new(), |mut acc, (k, v)| {
+            acc.insert(k.to_string(), v.to_string());
+            acc
+        })
     }
 
     #[pyfunction]
@@ -422,8 +427,6 @@ mod tests {
 
     #[test]
     fn test_python_checks_config() {
-        trace!("Starting test_python_checks_config");
-
         let config = ConfigurationLoader::default()
             .from_yaml("src/sources/checks/builder/python/tests/test_checks_config.yaml")
             .expect("configuration should be loaded")
