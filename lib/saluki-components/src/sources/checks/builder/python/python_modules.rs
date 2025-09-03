@@ -12,7 +12,7 @@ use saluki_core::data_model::event::{
 };
 use saluki_error::{generic_error, GenericError};
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::sources::checks::check_metric::{CheckMetric, MetricType};
 use crate::sources::checks::execution_context::{ExecutionContext, HttpHeaders};
@@ -303,9 +303,15 @@ pub mod datadog_agent {
     // TODO: is isize the correct type?
     #[pyfunction]
     fn log_message(message: String, level: isize) {
-        trace!("log_message({}, {})", message, level);
-        println!("log_message({}, {})", message, level);
-        // TODO
+        match level {
+            50 => error!(message), // FIXME: we don't have a critical level!
+            40 => error!(message),
+            30 => warn!(message),
+            20 => info!(message),
+            10 => debug!(message),
+            7 => trace!(message),
+            _ => info!(message),
+        }
     }
 
     #[pyfunction]
@@ -480,5 +486,46 @@ mod tests {
             "http_headers User-Agent mismatch: {}",
             result.http_headers["User-Agent"]
         );
+    }
+
+    // FIXME: don't commit this
+    #[test_log::test]
+    fn test_python_checks_logging() {
+        trace!("Starting python checks logging test");
+
+        set_configuration(
+            ConfigurationLoader::default()
+                .into_generic()
+                .expect("convert to generic configuration"),
+        );
+        set_execution_context(ExecutionContext::default());
+
+        pyo3::append_to_inittab!(datadog_agent);
+        pyo3::prepare_freethreaded_python();
+
+        let result = Python::with_gil(|py| -> Result<(), Box<dyn std::error::Error>> {
+            let datadog_agent = PyModule::import(py, "datadog_agent")?;
+
+            datadog_agent
+                .getattr("log_message")?
+                .call1(("critical test message", 50))?;
+            datadog_agent
+                .getattr("log_message")?
+                .call1(("error test message", 40))?;
+            datadog_agent
+                .getattr("log_message")?
+                .call1(("warning test message", 30))?;
+            datadog_agent.getattr("log_message")?.call1(("info test message", 20))?;
+            datadog_agent
+                .getattr("log_message")?
+                .call1(("debug test message", 10))?;
+            datadog_agent.getattr("log_message")?.call1(("trace test message", 7))?;
+            datadog_agent
+                .getattr("log_message")?
+                .call1(("default test message", 0))?;
+
+            Ok(())
+        });
+        assert!(result.is_ok(), "Python datadog_agent test failed: {:?}", result.err());
     }
 }
